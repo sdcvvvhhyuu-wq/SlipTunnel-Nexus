@@ -1,0 +1,22 @@
+[package]
+name = "argotunnel_rust_core"
+version = "1.4.0"
+edition = "2021"
+authors = ["Nexus Architect <nexus@argotunnel.com>"]
+description = "Bare-metal packet runtime and post-quantum cryptography layer"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+tokio = { version = "1.35.1", features = ["full"] }
+quinn = "0.10.2"
+ring = "0.17.7"
+jni = "0.21.1"
+smoltcp = { version = "0.11.0", default-features = false, features = ["std", "log", "medium-ip", "proto-ipv4", "proto-ipv6", "socket-tcp", "socket-udp"] }
+pqcrypto-kyber = "0.8.1"
+pqcrypto-traits = "0.3.5"
+bytes = "1.5.0"
+lazy_static = "1.4.0"
+log = "0.4.20"
+parking_lot = "0.12.1"
