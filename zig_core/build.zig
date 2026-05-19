@@ -11,6 +11,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
-    lib.linkLibC();
+    // خط lib.linkLibC() به طور کامل حذف شد.
+    // کد ما کاملاً Bare-Metal است و نیازی به کتابخانه استاندارد C اندروید ندارد.
+
     b.installArtifact(lib);
 }
