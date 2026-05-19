@@ -1,4 +1,4 @@
-name: Nexus Omni-Build Pipeline
+Name: Nexus Omni-Build Pipeline
 
 on:
   push:
@@ -18,7 +18,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-          cache-dependency-path: core/go.sum
 
       - name: Setup Rust
         run: |
@@ -58,10 +57,11 @@ jobs:
 
       - name: Stage Artifacts (Flatten Directory Structure)
         run: |
-          mkdir -p staging_artifacts
-          cp rust_core/target/aarch64-linux-android/release/libargotunnel_rust_core.so staging_artifacts/
-          cp core/libargotunnel_core.so staging_artifacts/
-          cp core/libargotunnel_core.h staging_artifacts/
+          mkdir -p staging_artifacts/libs
+          mkdir -p staging_artifacts/headers
+          cp rust_core/target/aarch64-linux-android/release/libargotunnel_rust_core.so staging_artifacts/libs/
+          cp core/libargotunnel_core.so staging_artifacts/libs/
+          cp core/libargotunnel_core.h staging_artifacts/headers/
 
       - name: Upload Core Artifacts
         uses: actions/upload-artifact@v4
@@ -87,20 +87,25 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: native-libraries
-          path: android/app/src/main/jniLibs/arm64-v8a/
+          path: temp_native_artifacts/
+
+      - name: Distribute Native Artifacts to Android Structure
+        run: |
+          mkdir -p android/app/src/main/jniLibs/arm64-v8a/
+          mkdir -p android/app/src/main/cpp/
+          cp -r temp_native_artifacts/libs/* android/app/src/main/jniLibs/arm64-v8a/
+          cp -r temp_native_artifacts/headers/* android/app/src/main/cpp/
 
       - name: Generate Root Gradle Configs Automatically
         run: |
           cd android
           
-          # 1. Create gradle.properties to enable AndroidX
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
           EOF
           
-          # 2. Create root build.gradle.kts with Android Plugin versions
           cat << 'EOF' > build.gradle.kts
           plugins {
               id("com.android.application") version "8.2.2" apply false
@@ -108,7 +113,6 @@ jobs:
           }
           EOF
           
-          # 3. Create settings.gradle.kts with Google and MavenCentral repositories
           cat << 'EOF' > settings.gradle.kts
           pluginManagement {
               repositories {
@@ -128,7 +132,6 @@ jobs:
           include(":app")
           EOF
           
-          # 4. Generate the gradlew wrapper
           gradle wrapper --gradle-version 8.6
 
       - name: Build Release APK
