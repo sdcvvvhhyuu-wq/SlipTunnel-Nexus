@@ -6,10 +6,6 @@ on:
   pull_request:
     branches: [ "main" ]
 
-env:
-  # رفع هشدار مربوط به Node.js 20 و اجبار به استفاده از نسخه 24
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   build-core:
     name: Compile Go, Rust, and Zig Cores
@@ -22,37 +18,29 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-          # غیرفعال کردن کش برای دور زدن خطای 400 سرورهای گیت‌هاب
-          cache: false
+          cache-dependency-path: core/go.sum
 
       - name: Setup Rust
         run: |
           rustup update stable
           rustup target add aarch64-linux-android
+          cargo install cargo-ndk
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.11.0
 
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r26b
+
       - name: Build Rust Core (aarch64)
         run: |
           cd rust_core
-          
-          # استفاده از NDK پیش‌فرض سرور گیت‌هاب و حذف ابزار معیوب cargo-ndk
-          export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
-          export AR=$TOOLCHAIN/bin/llvm-ar
-          export CC=$TOOLCHAIN/bin/aarch64-linux-android24-clang
-          export CXX=$TOOLCHAIN/bin/aarch64-linux-android24-clang++
-          
-          # تزریق مستقیم مسیرها به مغز کارگو برای کامپایل بدون نقص کریت‌های C
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR=$AR
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$CC
-          export CC_aarch64_linux_android=$CC
-          export CXX_aarch64_linux_android=$CXX
-          
-          # کامپایل مستقیم توسط خود راست بدون هیچ ابزار واسطه
-          cargo build --target aarch64-linux-android --release
+          cargo ndk -t arm64-v8a -p 24 build --release
 
       - name: Build Zig Scrubber (aarch64)
         run: |
@@ -96,6 +84,17 @@ jobs:
         with:
           name: native-libraries
           path: android/app/src/main/jniLibs/arm64-v8a/
+
+      - name: Generate Gradle Wrapper & Settings
+        run: |
+          cd android
+          # 1. Ensure settings.gradle.kts exists so Gradle knows about the ':app' module
+          if [ ! -f "settings.gradle" ] && [ ! -f "settings.gradle.kts" ]; then
+            echo 'include(":app")' > settings.gradle.kts
+            echo 'rootProject.name = "SlipTunnel-Nexus"' >> settings.gradle.kts
+          fi
+          # 2. Generate the missing gradlew file using the system's pre-installed Gradle
+          gradle wrapper
 
       - name: Build Release APK
         run: |
