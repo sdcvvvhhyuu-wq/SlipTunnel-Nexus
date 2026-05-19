@@ -40,7 +40,8 @@ jobs:
       - name: Build Rust Core (aarch64)
         run: |
           cd rust_core
-          cargo ndk -t arm64-v8a -p 24 build --release
+          # FIXED: Changed -p to --platform to support the latest cargo-ndk version
+          cargo ndk -t arm64-v8a --platform 24 build --release
 
       - name: Build Zig Scrubber (aarch64)
         run: |
@@ -88,12 +89,12 @@ jobs:
       - name: Generate Gradle Wrapper & Settings
         run: |
           cd android
-          # 1. Ensure settings.gradle.kts exists so Gradle knows about the ':app' module
+          # Ensure settings.gradle.kts exists so Gradle knows about the ':app' module
           if [ ! -f "settings.gradle" ] && [ ! -f "settings.gradle.kts" ]; then
             echo 'include(":app")' > settings.gradle.kts
             echo 'rootProject.name = "SlipTunnel-Nexus"' >> settings.gradle.kts
           fi
-          # 2. Generate the missing gradlew file using the system's pre-installed Gradle
+          # Generate the missing gradlew file using the system's pre-installed Gradle
           gradle wrapper
 
       - name: Build Release APK
