@@ -30,11 +30,8 @@ jobs:
 
       - name: Build Native Cores
         run: |
-          # Build Rust
           cd rust_core && cargo ndk -t arm64-v8a --platform 24 build --release && cd ..
-          # Build Zig
           cd zig_core && zig build -Dtarget=aarch64-linux-android -Doptimize=ReleaseFast && cd ..
-          # Build Go
           cd core
           export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
           CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -buildmode=c-shared -o libargotunnel_core.so main.go
@@ -67,18 +64,21 @@ jobs:
 
       - name: Prepare Android Environment
         run: |
-          # 1. تزریق خودکار آیکون‌ها
-          mkdir -p android/app/src/main/res/drawable/ android/app/src/main/res/mipmap-anydpi-v26/
-          echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 0,0 H 108 V 108 H 0 Z" android:fillColor="#000000" /></vector>' > android/app/src/main/res/drawable/ic_launcher_background.xml
-          echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 54,30 L 74,66 H 34 Z" android:fillColor="#00E5FF" /></vector>' > android/app/src/main/res/drawable/ic_launcher_foreground.xml
-          echo '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/ic_launcher_background"/><foreground android:drawable="@drawable/ic_launcher_foreground"/></adaptive-icon>' > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          # پیدا کردن خودکار ریشه پروژه اندروید
+          ANDROID_ROOT=$(find . -maxdepth 3 -name "settings.gradle*" -exec dirname {} \;)
+          echo "Android root located at: $ANDROID_ROOT"
+          
+          # تزریق آیکون‌ها
+          mkdir -p $ANDROID_ROOT/app/src/main/res/drawable/ $ANDROID_ROOT/app/src/main/res/mipmap-anydpi-v26/
+          echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 0,0 H 108 V 108 H 0 Z" android:fillColor="#000000" /></vector>' > $ANDROID_ROOT/app/src/main/res/drawable/ic_launcher_background.xml
+          echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 54,30 L 74,66 H 34 Z" android:fillColor="#00E5FF" /></vector>' > $ANDROID_ROOT/app/src/main/res/drawable/ic_launcher_foreground.xml
+          echo '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/ic_launcher_background"/><foreground android:drawable="@drawable/ic_launcher_foreground"/></adaptive-icon>' > $ANDROID_ROOT/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
 
-          # 2. انتقال کتابخانه‌ها
-          mkdir -p android/app/src/main/jniLibs/arm64-v8a/
-          cp temp_libs/libs/* android/app/src/main/jniLibs/arm64-v8a/
-
-          # 3. تولید و پیکربندی گریدل هوشمند
-          cd android
+          # انتقال کتابخانه‌ها و تنظیم گریدل
+          mkdir -p $ANDROID_ROOT/app/src/main/jniLibs/arm64-v8a/
+          cp temp_libs/libs/* $ANDROID_ROOT/app/src/main/jniLibs/arm64-v8a/
+          
+          cd $ANDROID_ROOT
           if [ ! -f "gradlew" ]; then
             gradle wrapper --gradle-version 8.6
           fi
@@ -86,11 +86,12 @@ jobs:
 
       - name: Build APK
         run: |
-          cd android
+          ANDROID_ROOT=$(find . -maxdepth 3 -name "settings.gradle*" -exec dirname {} \;)
+          cd $ANDROID_ROOT
           ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: release-apk
-          path: android/app/build/outputs/apk/release/*.apk
+          path: **/outputs/apk/release/*.apk
