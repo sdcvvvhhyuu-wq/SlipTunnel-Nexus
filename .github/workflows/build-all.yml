@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Nexus Omni-Build Pipeline
 
 on:
   push:
@@ -8,44 +8,65 @@ on:
 
 jobs:
   build-core:
-    name: Compile Native Cores
+    name: Compile Go, Rust, and Zig Cores
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Toolchains
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: core/go.sum
+
+      - name: Setup Rust
         run: |
-          sudo apt-get update && sudo apt-get install -y golang-go
+          rustup update stable
           rustup target add aarch64-linux-android
           cargo install cargo-ndk
-          
-      - name: Setup Zig & NDK
+
+      - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.11.0
-      - uses: nttld/setup-ndk@v1
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
         with:
           ndk-version: r26b
 
-      - name: Build Native Cores
+      - name: Build Rust Core (aarch64)
         run: |
-          cd rust_core && cargo ndk -t arm64-v8a --platform 24 build --release && cd ..
-          cd zig_core && zig build -Dtarget=aarch64-linux-android -Doptimize=ReleaseFast && cd ..
-          cd core
-          export CC=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang
-          CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -buildmode=c-shared -o libargotunnel_core.so main.go
-          cd ..
+          cd rust_core
+          cargo ndk -t arm64-v8a --platform 24 build --release
 
-      - name: Stage Artifacts
+      - name: Build Zig Scrubber (aarch64)
         run: |
-          mkdir -p staging_artifacts/libs
-          cp rust_core/target/aarch64-linux-android/release/libargotunnel_rust_core.so staging_artifacts/libs/
-          cp core/libargotunnel_core.so staging_artifacts/libs/
+          cd zig_core
+          zig build -Dtarget=aarch64-linux-android -Doptimize=ReleaseFast
+
+      - name: Build Go Core (C-Shared)
+        run: |
+          cd core
+          export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export CC=$TOOLCHAIN/bin/aarch64-linux-android24-clang
+          export CXX=$TOOLCHAIN/bin/aarch64-linux-android24-clang++
           
-      - uses: actions/upload-artifact@v4
+          CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -buildmode=c-shared -o libargotunnel_core.so main.go
+
+      - name: Stage Artifacts (Flatten Directory Structure)
+        run: |
+          mkdir -p staging_artifacts
+          cp rust_core/target/aarch64-linux-android/release/libargotunnel_rust_core.so staging_artifacts/
+          cp core/libargotunnel_core.so staging_artifacts/
+          cp core/libargotunnel_core.h staging_artifacts/
+
+      - name: Upload Core Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: native-libs
+          name: native-libraries
           path: staging_artifacts/
 
   build-android:
@@ -56,42 +77,68 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Download Native Libs
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Download Core Artifacts
         uses: actions/download-artifact@v4
         with:
-          name: native-libs
-          path: temp_libs/
+          name: native-libraries
+          path: android/app/src/main/jniLibs/arm64-v8a/
 
-      - name: Prepare Android Environment
+      - name: Generate Root Gradle Configs Automatically
         run: |
-          # پیدا کردن خودکار ریشه پروژه اندروید
-          ANDROID_ROOT=$(find . -maxdepth 3 -name "settings.gradle*" -exec dirname {} \;)
-          echo "Android root located at: $ANDROID_ROOT"
+          cd android
           
-          # تزریق آیکون‌ها
-          mkdir -p $ANDROID_ROOT/app/src/main/res/drawable/ $ANDROID_ROOT/app/src/main/res/mipmap-anydpi-v26/
-          echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 0,0 H 108 V 108 H 0 Z" android:fillColor="#000000" /></vector>' > $ANDROID_ROOT/app/src/main/res/drawable/ic_launcher_background.xml
-          echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 54,30 L 74,66 H 34 Z" android:fillColor="#00E5FF" /></vector>' > $ANDROID_ROOT/app/src/main/res/drawable/ic_launcher_foreground.xml
-          echo '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/ic_launcher_background"/><foreground android:drawable="@drawable/ic_launcher_foreground"/></adaptive-icon>' > $ANDROID_ROOT/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          # 1. Create gradle.properties to enable AndroidX
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+          
+          # 2. Create root build.gradle.kts with Android Plugin versions
+          cat << 'EOF' > build.gradle.kts
+          plugins {
+              id("com.android.application") version "8.2.2" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.22" apply false
+          }
+          EOF
+          
+          # 3. Create settings.gradle.kts with Google and MavenCentral repositories
+          cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "SlipTunnel-Nexus"
+          include(":app")
+          EOF
+          
+          # 4. Generate the gradlew wrapper
+          gradle wrapper --gradle-version 8.6
 
-          # انتقال کتابخانه‌ها و تنظیم گریدل
-          mkdir -p $ANDROID_ROOT/app/src/main/jniLibs/arm64-v8a/
-          cp temp_libs/libs/* $ANDROID_ROOT/app/src/main/jniLibs/arm64-v8a/
-          
-          cd $ANDROID_ROOT
-          if [ ! -f "gradlew" ]; then
-            gradle wrapper --gradle-version 8.6
-          fi
+      - name: Build Release APK
+        run: |
+          cd android
           chmod +x gradlew
-
-      - name: Build APK
-        run: |
-          ANDROID_ROOT=$(find . -maxdepth 3 -name "settings.gradle*" -exec dirname {} \;)
-          cd $ANDROID_ROOT
           ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: release-apk
-          path: "**/outputs/apk/release/*.apk"
+          name: hiddify-sliptunnel-nexus-release
+          path: android/app/build/outputs/apk/release/*.apk
