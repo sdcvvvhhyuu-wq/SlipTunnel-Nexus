@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Path A: Outer Hexagon -->
+    <path
+        android:pathData="M 54.00,30.00 L 33.22,42.00 L 33.22,66.00 L 54.00,78.00 L 74.78,66.00 L 74.78,42.00 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.5" />
+
+    <!-- Path B: Inner Hexagon -->
+    <path
+        android:pathData="M 54.00,38.00 L 40.14,46.00 L 40.14,62.00 L 54.00,70.00 L 67.86,62.00 L 67.86,46.00 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#7B2FFF"
+        android:strokeWidth="1.5" />
+
+    <!-- Path C1: Line to Outer V0 -->
+    <path
+        android:pathData="M 54.00,54.00 L 54.00,30.00"
+        android:fillColor="#00000000"
+        android:strokeColor="#9900E5FF"
+        android:strokeWidth="1.0" />
+
+    <!-- Path C2: Line to Outer V1 -->
+    <path
+        android:pathData="M 54.00,54.00 L 33.22,42.00"
+        android:fillColor="#00000000"
+        android:strokeColor="#9900E5FF"
+        android:strokeWidth="1.0" />
+
+    <!-- Path C3: Line to Outer V2 -->
+    <path
+        android:pathData="M 54.00,54.00 L 33.22,66.00"
+        android:fillColor="#00000000"
+        android:strokeColor="#9900E5FF"
+        android:strokeWidth="1.0" />
+
+    <!-- Path C4: Line to Outer V3 -->
+    <path
+        android:pathData="M 54.00,54.00 L 54.00,78.00"
+        android:fillColor="#00000000"
+        android:strokeColor="#9900E5FF"
+        android:strokeWidth="1.0" />
+
+    <!-- Path C5: Line to Outer V4 -->
+    <path
+        android:pathData="M 54.00,54.00 L 74.78,66.00"
+        android:fillColor="#00000000"
+        android:strokeColor="#9900E5FF"
+        android:strokeWidth="1.0" />
+
+    <!-- Path C6: Line to Outer V5 -->
+    <path
+        android:pathData="M 54.00,54.00 L 74.78,42.00"
+        android:fillColor="#00000000"
+        android:strokeColor="#9900E5FF"
+        android:strokeWidth="1.0" />
+
+    <!-- Path D: Center Circle -->
+    <path
+        android:pathData="M 54.00,49.00 C 56.76,49.00 59.00,51.24 59.00,54.00 C 59.00,56.76 56.76,59.00 54.00,59.00 C 51.24,59.00 49.00,56.76 49.00,54.00 C 49.00,51.24 51.24,49.00 54.00,49.00 Z"
+        android:fillColor="#00E5FF" />
+
+    <!-- Path E1: Accent Circle at V0 -->
+    <path
+        android:pathData="M 54.00,35.50 C 55.38,35.50 56.50,36.62 56.50,38.00 C 56.50,39.38 55.38,40.50 54.00,40.50 C 52.62,40.50 51.50,39.38 51.50,38.00 C 51.50,36.62 52.62,35.50 54.00,35.50 Z"
+        android:fillColor="#7B2FFF" />
+
+    <!-- Path E2: Accent Circle at V2 -->
+    <path
+        android:pathData="M 40.14,59.50 C 41.52,59.50 42.64,60.62 42.64,62.00 C 42.64,63.38 41.52,64.50 40.14,64.50 C 38.76,64.50 37.64,63.38 37.64,62.00 C 37.64,60.62 38.76,59.50 40.14,59.50 Z"
+        android:fillColor="#7B2FFF" />
+
+    <!-- Path E3: Accent Circle at V4 -->
+    <path
+        android:pathData="M 67.86,59.50 C 69.24,59.50 70.36,60.62 70.36,62.00 C 70.36,63.38 69.24,64.50 67.86,64.50 C 66.48,64.50 65.36,63.38 65.36,62.00 C 65.36,60.62 66.48,59.50 67.86,59.50 Z"
+        android:fillColor="#7B2FFF" />
+</vector>
