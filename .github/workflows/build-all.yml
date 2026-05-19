@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ "main" ]
 
+env:
+  # رفع هشدار مربوط به Node.js 20 و اجبار به استفاده از نسخه 24
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-core:
     name: Compile Go, Rust, and Zig Cores
@@ -18,41 +22,46 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-          cache-dependency-path: core/go.sum
+          # غیرفعال کردن کش برای دور زدن خطای 400 سرورهای گیت‌هاب
+          cache: false
 
       - name: Setup Rust
         run: |
           rustup update stable
           rustup target add aarch64-linux-android
-          cargo install cargo-ndk
 
       - name: Setup Zig
         uses: goto-bus-stop/setup-zig@v2
         with:
           version: 0.11.0
 
-      - name: Setup Android NDK
-        uses: nttld/setup-ndk@v1
-        id: setup-ndk
-        with:
-          ndk-version: r26b
-
       - name: Build Rust Core (aarch64)
         run: |
           cd rust_core
-          # cargo-ndk automatically handles the CC, AR, and Linker paths for the ring crate
-          cargo ndk -t arm64-v8a -p 24 build --release
+          
+          # استفاده از NDK پیش‌فرض سرور گیت‌هاب و حذف ابزار معیوب cargo-ndk
+          export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
+          export AR=$TOOLCHAIN/bin/llvm-ar
+          export CC=$TOOLCHAIN/bin/aarch64-linux-android24-clang
+          export CXX=$TOOLCHAIN/bin/aarch64-linux-android24-clang++
+          
+          # تزریق مستقیم مسیرها به مغز کارگو برای کامپایل بدون نقص کریت‌های C
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR=$AR
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$CC
+          export CC_aarch64_linux_android=$CC
+          export CXX_aarch64_linux_android=$CXX
+          
+          # کامپایل مستقیم توسط خود راست بدون هیچ ابزار واسطه
+          cargo build --target aarch64-linux-android --release
 
       - name: Build Zig Scrubber (aarch64)
         run: |
           cd zig_core
-          # Zig has a built-in C compiler, just needs the correct Android target
           zig build -Dtarget=aarch64-linux-android -Doptimize=ReleaseFast
 
       - name: Build Go Core (C-Shared)
         run: |
           cd core
-          # Explicitly map the NDK Clang compiler for CGO cross-compilation
           export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
           export CC=$TOOLCHAIN/bin/aarch64-linux-android24-clang
           export CXX=$TOOLCHAIN/bin/aarch64-linux-android24-clang++
