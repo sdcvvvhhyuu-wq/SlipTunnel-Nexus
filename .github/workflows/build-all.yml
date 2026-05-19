@@ -1,4 +1,4 @@
-name: Nexus Omni-Build Pipeline
+name: Build Android APK
 
 on:
   push:
@@ -52,10 +52,9 @@ jobs:
           export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
           export CC=$TOOLCHAIN/bin/aarch64-linux-android24-clang
           export CXX=$TOOLCHAIN/bin/aarch64-linux-android24-clang++
-          
           CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -buildmode=c-shared -o libargotunnel_core.so main.go
 
-      - name: Stage Artifacts (Flatten Directory Structure)
+      - name: Stage Artifacts
         run: |
           mkdir -p staging_artifacts/libs
           mkdir -p staging_artifacts/headers
@@ -77,62 +76,29 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
       - name: Download Core Artifacts
         uses: actions/download-artifact@v4
         with:
           name: native-libraries
           path: temp_native_artifacts/
 
-      - name: Distribute Native Artifacts to Android Structure
+      - name: Inject Adaptive Icon Resources
+        run: |
+          # ایجاد پوشه‌های لازم برای آیکون‌ها
+          mkdir -p android/app/src/main/res/drawable/
+          mkdir -p android/app/src/main/res/mipmap-anydpi-v26/
+          
+          # این مرحله به صورت خودکار فایل‌های وکتور را ایجاد می‌کند تا خطای AAPT2 رفع شود
+          echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 0,0 H 108 V 108 H 0 Z" android:fillColor="#000000" /></vector>' > android/app/src/main/res/drawable/ic_launcher_background.xml
+          
+          echo '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 54,30 L 74,66 H 34 Z" android:fillColor="#00E5FF" /></vector>' > android/app/src/main/res/drawable/ic_launcher_foreground.xml
+          
+          echo '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/ic_launcher_background"/><foreground android:drawable="@drawable/ic_launcher_foreground"/></adaptive-icon>' > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+
+      - name: Distribute Native Artifacts
         run: |
           mkdir -p android/app/src/main/jniLibs/arm64-v8a/
-          mkdir -p android/app/src/main/cpp/
           cp -r temp_native_artifacts/libs/* android/app/src/main/jniLibs/arm64-v8a/
-          cp -r temp_native_artifacts/headers/* android/app/src/main/cpp/
-
-      - name: Generate Root Gradle Configs Automatically
-        run: |
-          cd android
-          
-          cat << 'EOF' > gradle.properties
-          android.useAndroidX=true
-          android.enableJetifier=true
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          EOF
-          
-          cat << 'EOF' > build.gradle.kts
-          plugins {
-              id("com.android.application") version "8.2.2" apply false
-              id("org.jetbrains.kotlin.android") version "1.9.22" apply false
-          }
-          EOF
-          
-          cat << 'EOF' > settings.gradle.kts
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          rootProject.name = "SlipTunnel-Nexus"
-          include(":app")
-          EOF
-          
-          gradle wrapper --gradle-version 8.6
 
       - name: Build Release APK
         run: |
