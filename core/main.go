@@ -6,7 +6,6 @@ package main
 import "C"
 import (
 	"fmt"
-	"unsafe"
 
 	"com.argotunnel/core/capabilities"
 	"com.argotunnel/core/engine"
