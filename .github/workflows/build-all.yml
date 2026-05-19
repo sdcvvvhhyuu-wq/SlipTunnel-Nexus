@@ -1,4 +1,4 @@
-Name: Nexus Omni-Build Pipeline
+name: Nexus Omni-Build Pipeline
 
 on:
   push:
