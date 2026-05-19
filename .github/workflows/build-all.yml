@@ -1,0 +1,93 @@
+name: Nexus Omni-Build Pipeline
+
+on:
+  push:
+    branches: [ "main", "release/*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-core:
+    name: Compile Go, Rust, and Zig Cores
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: aarch64-linux-android
+          override: true
+
+      - name: Setup Zig
+        uses: goto-bus-stop/setup-zig@v2
+        with:
+          version: 0.11.0
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b
+
+      - name: Build Rust Core (aarch64)
+        run: |
+          cd rust_core
+          cargo build --target aarch64-linux-android --release
+
+      - name: Build Zig Scrubber (aarch64)
+        run: |
+          cd zig_core
+          zig build -Dtarget=aarch64-linux-gnu -Doptimize=ReleaseFast
+
+      - name: Build Go Core (C-Shared)
+        run: |
+          cd core
+          CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -buildmode=c-shared -o libargotunnel_core.so main.go
+
+      - name: Upload Core Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-libraries
+          path: |
+            rust_core/target/aarch64-linux-android/release/libargotunnel_rust_core.so
+            core/libargotunnel_core.so
+            core/libargotunnel_core.h
+
+  build-android:
+    name: Build Android APK
+    needs: build-core
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Download Core Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: native-libraries
+          path: android/app/src/main/jniLibs/arm64-v8a/
+
+      - name: Build Release APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: hiddify-sliptunnel-nexus-release
+          path: android/app/build/outputs/apk/release/*.apk
