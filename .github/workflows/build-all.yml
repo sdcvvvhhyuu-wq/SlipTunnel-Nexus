@@ -89,7 +89,14 @@ jobs:
         run: |
           cd android
           
-          # 1. Create root build.gradle.kts with Android Plugin versions
+          # 1. Create gradle.properties to enable AndroidX (FIX FOR CURRENT ERROR)
+          cat << 'EOF' > gradle.properties
+          android.useAndroidX=true
+          android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          EOF
+          
+          # 2. Create root build.gradle.kts with Android Plugin versions
           cat << 'EOF' > build.gradle.kts
           plugins {
               id("com.android.application") version "8.2.2" apply false
@@ -97,7 +104,7 @@ jobs:
           }
           EOF
           
-          # 2. Create settings.gradle.kts with Google and MavenCentral repositories
+          # 3. Create settings.gradle.kts with Google and MavenCentral repositories
           cat << 'EOF' > settings.gradle.kts
           pluginManagement {
               repositories {
@@ -117,7 +124,7 @@ jobs:
           include(":app")
           EOF
           
-          # 3. Generate the gradlew wrapper
+          # 4. Generate the gradlew wrapper
           gradle wrapper --gradle-version 8.6
 
       - name: Build Release APK
