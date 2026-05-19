@@ -56,14 +56,18 @@ jobs:
           
           CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -buildmode=c-shared -o libargotunnel_core.so main.go
 
+      - name: Stage Artifacts (Flatten Directory Structure)
+        run: |
+          mkdir -p staging_artifacts
+          cp rust_core/target/aarch64-linux-android/release/libargotunnel_rust_core.so staging_artifacts/
+          cp core/libargotunnel_core.so staging_artifacts/
+          cp core/libargotunnel_core.h staging_artifacts/
+
       - name: Upload Core Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: native-libraries
-          path: |
-            rust_core/target/aarch64-linux-android/release/libargotunnel_rust_core.so
-            core/libargotunnel_core.so
-            core/libargotunnel_core.h
+          path: staging_artifacts/
 
   build-android:
     name: Build Android APK
@@ -89,7 +93,7 @@ jobs:
         run: |
           cd android
           
-          # 1. Create gradle.properties to enable AndroidX (FIX FOR CURRENT ERROR)
+          # 1. Create gradle.properties to enable AndroidX
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
