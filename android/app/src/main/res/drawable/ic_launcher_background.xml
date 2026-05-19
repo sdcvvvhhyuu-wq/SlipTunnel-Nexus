@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Path A: Full background rectangle -->
+    <path
+        android:pathData="M 0.00,0.00 H 108.00 V 108.00 H 0.00 Z"
+        android:fillColor="#000000" />
+
+    <!-- Path B1: Center Hexagon -->
+    <path
+        android:pathData="M 54.00,42.00 L 43.61,48.00 L 43.61,60.00 L 54.00,66.00 L 64.39,60.00 L 64.39,48.00 Z"
+        android:fillColor="#0A0E17"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.8" />
+
+    <!-- Path B2: Surrounding Hexagon 1 (30°) -->
+    <path
+        android:pathData="M 72.00,52.39 L 61.61,58.39 L 61.61,70.39 L 72.00,76.39 L 82.39,70.39 L 82.39,58.39 Z"
+        android:fillColor="#0A0E17"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.8" />
+
+    <!-- Path B3: Surrounding Hexagon 2 (90°) -->
+    <path
+        android:pathData="M 54.00,62.78 L 43.61,68.78 L 43.61,80.78 L 54.00,86.78 L 64.39,80.78 L 64.39,68.78 Z"
+        android:fillColor="#0A0E17"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.8" />
+
+    <!-- Path B4: Surrounding Hexagon 3 (150°) -->
+    <path
+        android:pathData="M 36.00,52.39 L 25.61,58.39 L 25.61,70.39 L 36.00,76.39 L 46.39,70.39 L 46.39,58.39 Z"
+        android:fillColor="#0A0E17"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.8" />
+
+    <!-- Path B5: Surrounding Hexagon 4 (210°) -->
+    <path
+        android:pathData="M 36.00,31.61 L 25.61,37.61 L 25.61,49.61 L 36.00,55.61 L 46.39,49.61 L 46.39,37.61 Z"
+        android:fillColor="#0A0E17"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.8" />
+
+    <!-- Path B6: Surrounding Hexagon 5 (270°) -->
+    <path
+        android:pathData="M 54.00,21.22 L 43.61,27.22 L 43.61,39.22 L 54.00,45.22 L 64.39,39.22 L 64.39,27.22 Z"
+        android:fillColor="#0A0E17"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.8" />
+
+    <!-- Path B7: Surrounding Hexagon 6 (330°) -->
+    <path
+        android:pathData="M 72.00,31.61 L 61.61,37.61 L 61.61,49.61 L 72.00,55.61 L 82.39,49.61 L 82.39,37.61 Z"
+        android:fillColor="#0A0E17"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.8" />
+
+    <!-- Path C1: Radial Line 1 -->
+    <path
+        android:pathData="M 54.00,54.00 L 108.00,54.00"
+        android:fillColor="#00000000"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.5" />
+
+    <!-- Path C2: Radial Line 2 -->
+    <path
+        android:pathData="M 54.00,54.00 L 108.00,0.00"
+        android:fillColor="#00000000"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.5" />
+
+    <!-- Path C3: Radial Line 3 -->
+    <path
+        android:pathData="M 54.00,54.00 L 54.00,0.00"
+        android:fillColor="#00000000"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.5" />
+
+    <!-- Path C4: Radial Line 4 -->
+    <path
+        android:pathData="M 54.00,54.00 L 0.00,0.00"
+        android:fillColor="#00000000"
+        android:strokeColor="#141C2E"
+        android:strokeWidth="0.5" />
+</vector>
