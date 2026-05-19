@@ -3,6 +3,7 @@ use smoltcp::wire::{HardwareAddress, IpAddress, IpCidr};
 use smoltcp::time::Instant;
 use smoltcp::phy::{Device, DeviceCapabilities, Medium};
 use pqcrypto_kyber::kyber1024::*;
+use pqcrypto_traits::kem::{PublicKey, SecretKey}; // <--- THE CRITICAL FIX
 use std::os::raw::{c_char, c_int};
 use std::ffi::CStr;
 
@@ -39,6 +40,8 @@ pub extern "C" fn rust_psiphon_prepare_tls_dialer(
         
         // Initialize Post-Quantum Kyber encapsulation for the TLS Dialer session
         let (pk, _sk) = keypair();
+        
+        // Now pk.as_bytes() will work perfectly because the PublicKey trait is in scope
         let pk_bytes = pk.as_bytes();
         
         // Inject Kyber entropy into the Psiphon session ID
