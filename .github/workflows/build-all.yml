@@ -53,7 +53,6 @@ jobs:
           export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
           export CC=$TOOLCHAIN/bin/aarch64-linux-android24-clang
           export CXX=$TOOLCHAIN/bin/aarch64-linux-android24-clang++
-          
           CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -buildmode=c-shared -o libargotunnel_core.so main.go
 
       - name: Stage Artifacts (Flatten Directory Structure)
@@ -89,26 +88,53 @@ jobs:
           name: native-libraries
           path: android/app/src/main/jniLibs/arm64-v8a/
 
+      - name: Generate Android Resources Automatically
+        run: |
+          # Create all required resource directories
+          mkdir -p android/app/src/main/res/drawable
+          mkdir -p android/app/src/main/res/mipmap-anydpi-v26
+          mkdir -p android/app/src/main/res/xml
+
+          # Launcher background drawable
+          printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 0,0 H 108 V 108 H 0 Z" android:fillColor="#000000"/></vector>' \
+            > android/app/src/main/res/drawable/ic_launcher_background.xml
+
+          # Launcher foreground drawable
+          printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 54,30 L 74,66 H 34 Z" android:fillColor="#00E5FF"/></vector>' \
+            > android/app/src/main/res/drawable/ic_launcher_foreground.xml
+
+          # Adaptive icon — standard
+          printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/ic_launcher_background"/><foreground android:drawable="@drawable/ic_launcher_foreground"/></adaptive-icon>' \
+            > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+
+          # Adaptive icon — round (required by android:roundIcon in manifest)
+          printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/ic_launcher_background"/><foreground android:drawable="@drawable/ic_launcher_foreground"/></adaptive-icon>' \
+            > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+
+          # Data extraction rules (mandatory for targetSdk 31+)
+          printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="root" path="."/></cloud-backup><device-transfer><exclude domain="root" path="."/></device-transfer></data-extraction-rules>' \
+            > android/app/src/main/res/xml/data_extraction_rules.xml
+
       - name: Generate Root Gradle Configs Automatically
         run: |
           cd android
-          
-          # 1. Create gradle.properties to enable AndroidX
+
+          # 1. gradle.properties — enable AndroidX and set JVM memory
           cat << 'EOF' > gradle.properties
           android.useAndroidX=true
           android.enableJetifier=true
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
           EOF
-          
-          # 2. Create root build.gradle.kts with Android Plugin versions
+
+          # 2. Root build.gradle.kts — declare plugin versions
           cat << 'EOF' > build.gradle.kts
           plugins {
               id("com.android.application") version "8.2.2" apply false
               id("org.jetbrains.kotlin.android") version "1.9.22" apply false
           }
           EOF
-          
-          # 3. Create settings.gradle.kts with Google and MavenCentral repositories
+
+          # 3. settings.gradle.kts — declare repositories and module structure
           cat << 'EOF' > settings.gradle.kts
           pluginManagement {
               repositories {
@@ -127,8 +153,8 @@ jobs:
           rootProject.name = "SlipTunnel-Nexus"
           include(":app")
           EOF
-          
-          # 4. Generate the gradlew wrapper
+
+          # 4. Generate the Gradle wrapper
           gradle wrapper --gradle-version 8.6
 
       - name: Build Release APK
