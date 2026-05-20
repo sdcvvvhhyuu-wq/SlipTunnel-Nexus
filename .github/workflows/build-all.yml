@@ -245,7 +245,8 @@ jobs:
               print("AndroidManifest.xml already exists, skipping.")
 
           kt_path = 'android/app/src/main/kotlin/com/argotunnel/MainActivity.kt'
-          if not os.path.exists(kt_path):
+          java_path = 'android/app/src/main/java/com/argotunnel/MainActivity.kt'
+          if not os.path.exists(kt_path) and not os.path.exists(java_path):
               os.makedirs(os.path.dirname(kt_path), exist_ok=True)
               kt = (
                   'package com.argotunnel\n'
@@ -366,7 +367,7 @@ jobs:
               'android {\n'
               '    namespace \'com.argotunnel\'\n'
               '    compileSdk 34\n'
-              '    ndkVersion "26.1.10909125"\n'
+              '    ndkVersion "27.3.13750724"\n'
               '\n'
               '    defaultConfig {\n'
               '        applicationId "com.argotunnel"\n'
