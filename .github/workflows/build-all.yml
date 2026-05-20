@@ -336,9 +336,35 @@ jobs:
           with open('android/settings.gradle.kts', 'w') as f:
               f.write(settings)
 
-          # Root build.gradle.kts — empty; plugin versions declared in settings
-          with open('android/build.gradle.kts', 'w') as f:
+          # FIX: Flutter 3.19.x isUsingGradle() only detects 'build.gradle' (Groovy DSL),
+          # NOT 'build.gradle.kts'. When isUsingGradle() returns false Flutter resolves the
+          # manifest path as 'android/AndroidManifest.xml' (old v1 root location) rather than
+          # 'android/app/src/main/AndroidManifest.xml', ignoring the flutterEmbedding metadata
+          # and aborting the build with "deprecated Android v1 embedding" (exit code 1).
+          # Writing 'build.gradle' (Groovy, valid as a plain comment file) forces
+          # isUsingGradle() to return true, directing Flutter to the correct v2 manifest path.
+          with open('android/build.gradle', 'w') as f:
               f.write('// Root build file. Plugin versions are declared in settings.gradle.kts.\n')
+
+          # Belt-and-suspenders: also write a minimal root-level AndroidManifest.xml containing
+          # the flutterEmbedding v2 marker. If isUsingGradle() ever returns false on a future
+          # runner, Flutter will read this file instead of app/src/main/AndroidManifest.xml and
+          # still find the v2 marker, preventing the v1 embedding failure.
+          root_manifest = (
+              '<?xml version="1.0" encoding="utf-8"?>\n'
+              '<!-- Marker file: tells Flutter 3.x tooling this project uses Android embedding v2\n'
+              '     when the Gradle project structure check (isUsingGradle) returns false.\n'
+              '     The authoritative manifest is android/app/src/main/AndroidManifest.xml. -->\n'
+              '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+              '    <application>\n'
+              '        <meta-data\n'
+              '            android:name="flutterEmbedding"\n'
+              '            android:value="2" />\n'
+              '    </application>\n'
+              '</manifest>\n'
+          )
+          with open('android/AndroidManifest.xml', 'w') as f:
+              f.write(root_manifest)
 
           # app/build.gradle.kts
           # externalNativeBuild is intentionally omitted. The native libraries
