@@ -5,11 +5,20 @@ on:
     branches: [ "main", "release/*" ]
   pull_request:
     branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB 1 — Compile native cores (Go, Rust, Zig) for aarch64-android
+  # ═══════════════════════════════════════════════════════════════════════════
   build-core:
     name: Compile Go, Rust, and Zig Cores
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -53,14 +62,15 @@ jobs:
           export TOOLCHAIN=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64
           export CC=$TOOLCHAIN/bin/aarch64-linux-android24-clang
           export CXX=$TOOLCHAIN/bin/aarch64-linux-android24-clang++
-          CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -buildmode=c-shared -o libargotunnel_core.so main.go
+          CGO_ENABLED=1 GOOS=android GOARCH=arm64 \
+            go build -buildmode=c-shared -o libargotunnel_core.so main.go
 
-      - name: Stage Artifacts (Flatten Directory Structure)
+      - name: Stage Artifacts
         run: |
           mkdir -p staging_artifacts
           cp rust_core/target/aarch64-linux-android/release/libargotunnel_rust_core.so staging_artifacts/
-          cp core/libargotunnel_core.so staging_artifacts/
-          cp core/libargotunnel_core.h staging_artifacts/
+          cp core/libargotunnel_core.so  staging_artifacts/
+          cp core/libargotunnel_core.h   staging_artifacts/
 
       - name: Upload Core Artifacts
         uses: actions/upload-artifact@v4
@@ -68,32 +78,64 @@ jobs:
           name: native-libraries
           path: staging_artifacts/
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  # JOB 2 — Build Android APK (Flutter + native .so files)
+  # ═══════════════════════════════════════════════════════════════════════════
   build-android:
     name: Build Android APK
     needs: build-core
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+      # ── Java (provides keytool + Gradle JVM) ──────────────────────────────
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: 'temurin'
           java-version: '17'
 
+      # ── Flutter ───────────────────────────────────────────────────────────
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.19.6'
           channel: 'stable'
 
+      # ── Auto-generate release keystore ────────────────────────────────────
+      # keytool ships with every JDK — no extra install required.
+      # The keystore is ephemeral (regenerated each run). For stable Play Store
+      # signing, replace this step with one that restores a base64-encoded
+      # keystore from a GitHub Secret.
+      - name: Generate Release Keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore "${{ github.workspace }}/release.jks" \
+            -alias releasekey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass android123 \
+            -keypass  android123 \
+            -dname "CN=SlipTunnel Nexus, OU=Dev, O=ArgoTunnel, L=Unknown, ST=Unknown, C=US"
+
+      - name: Export Signing Environment Variables
+        run: |
+          echo "SIGNING_STORE_FILE=${{ github.workspace }}/release.jks" >> $GITHUB_ENV
+          echo "SIGNING_KEY_ALIAS=releasekey"                           >> $GITHUB_ENV
+          echo "SIGNING_KEY_PASSWORD=android123"                        >> $GITHUB_ENV
+          echo "SIGNING_STORE_PASSWORD=android123"                      >> $GITHUB_ENV
+
+      # ── Native .so files ──────────────────────────────────────────────────
       - name: Download Core Artifacts
         uses: actions/download-artifact@v4
         with:
           name: native-libraries
           path: android/app/src/main/jniLibs/arm64-v8a/
 
+      # ── Android vector / adaptive-icon resources ──────────────────────────
       - name: Generate Android Resources
         run: |
           mkdir -p android/app/src/main/res/drawable
@@ -115,6 +157,7 @@ jobs:
           printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="root" path="."/></cloud-backup><device-transfer><exclude domain="root" path="."/></device-transfer></data-extraction-rules>' \
             > android/app/src/main/res/xml/data_extraction_rules.xml
 
+      # ── pubspec.yaml ──────────────────────────────────────────────────────
       - name: Generate pubspec.yaml if missing
         run: |
           if [ ! -f "pubspec.yaml" ]; then
@@ -139,6 +182,7 @@ jobs:
           "
           fi
 
+      # ── lib/main.dart ─────────────────────────────────────────────────────
       - name: Generate lib/main.dart if missing
         run: |
           python3 << 'PYEOF'
@@ -172,6 +216,7 @@ jobs:
               print("lib/main.dart already exists, skipping.")
           PYEOF
 
+      # ── AndroidManifest, MainActivity.kt, proguard-rules.pro ─────────────
       - name: Generate Android Source Files if missing
         run: |
           python3 << 'PYEOF'
@@ -244,7 +289,7 @@ jobs:
           else:
               print("AndroidManifest.xml already exists, skipping.")
 
-          kt_path = 'android/app/src/main/kotlin/com/argotunnel/MainActivity.kt'
+          kt_path   = 'android/app/src/main/kotlin/com/argotunnel/MainActivity.kt'
           java_path = 'android/app/src/main/java/com/argotunnel/MainActivity.kt'
           if not os.path.exists(kt_path) and not os.path.exists(java_path):
               os.makedirs(os.path.dirname(kt_path), exist_ok=True)
@@ -260,18 +305,11 @@ jobs:
           else:
               print("MainActivity.kt already exists, skipping.")
 
-          # ──────────────────────────────────────────────────────────────────────
-          # FIX: proguard-rules.pro must include -dontwarn com.google.android.play.core.**
-          #
-          # R8 (AGP 8.x) treats unresolvable class references as hard build errors.
-          # Flutter's engine bytecode internally references com.google.android.play.core.*
-          # (PlayStoreDeferredComponentManager, FlutterPlayStoreSplitApplication, etc.)
-          # even when the app does NOT use deferred/dynamic feature components.
-          # Since play-core is not a declared dependency, R8 cannot resolve those
-          # references and aborts with:
-          #   "Missing classes detected while running R8 ... missing_rules.txt"
-          # Adding -dontwarn suppresses the error for these Flutter-internal references.
-          # ──────────────────────────────────────────────────────────────────────
+          # ── proguard-rules.pro ────────────────────────────────────────────
+          # FIX: R8 (AGP 8.x) treats unresolvable class references as hard
+          # build errors. Flutter's engine references Play Core classes even
+          # when the app does not use dynamic feature components. The -dontwarn
+          # directive below suppresses those hard errors.
           pro_path = 'android/app/proguard-rules.pro'
           pro = (
               '-keep class io.flutter.** { *; }\n'
@@ -282,27 +320,19 @@ jobs:
               '    @android.webkit.JavascriptInterface <methods>;\n'
               '}\n'
               '\n'
-              '# Suppress R8 hard errors for Play Core classes referenced by Flutter\n'
-              '# engine internals (PlayStoreDeferredComponentManager, etc.).\n'
-              '# These classes are not needed because this app does not use\n'
-              '# Flutter deferred/dynamic feature components.\n'
+              '# Suppress R8 hard errors for Play Core classes referenced by\n'
+              '# Flutter engine internals (deferred component manager, etc.).\n'
               '-dontwarn com.google.android.play.core.**\n'
           )
-          # Always overwrite — ensures the rule is present even if file pre-existed
-          # without the dontwarn line (e.g. partial repo state).
           open(pro_path, 'w').write(pro)
-          print("Written proguard-rules.pro (with Play Core dontwarn fix)")
+          print("Written proguard-rules.pro")
           PYEOF
 
+      # ── Gradle files (settings, root build, app build, properties) ────────
       - name: Generate Flutter-Compatible Gradle Files
         run: |
           python3 << 'PYEOF'
-          # ─────────────────────────────────────────────────────────────────────
-          # The root android/build.gradle declares allprojects.repositories with
-          # google() and mavenCentral(). Without this block, Gradle only searches
-          # storage.googleapis.com/download.flutter.io for ALL dependencies, which
-          # causes "Could not find" errors for every standard Android/Kotlin artifact.
-          # ─────────────────────────────────────────────────────────────────────
+          import os
 
           # gradle.properties
           with open('android/gradle.properties', 'w') as f:
@@ -311,7 +341,7 @@ jobs:
               f.write('org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n')
               f.write('org.gradle.daemon=false\n')
 
-          # android/build.gradle (Groovy DSL root)
+          # android/build.gradle  (root — Groovy DSL)
           with open('android/build.gradle', 'w') as f:
               f.write(
                   'allprojects {\n'
@@ -322,7 +352,7 @@ jobs:
                   '}\n'
               )
 
-          # android/settings.gradle (Groovy DSL)
+          # android/settings.gradle  (Groovy DSL)
           settings = (
               'pluginManagement {\n'
               '    def flutterSdkPath = {\n'
@@ -342,8 +372,8 @@ jobs:
               '\n'
               'plugins {\n'
               '    id "dev.flutter.flutter-plugin-loader" version "1.0.0"\n'
-              '    id "com.android.application" version "8.2.2" apply false\n'
-              '    id "org.jetbrains.kotlin.android" version "1.9.22" apply false\n'
+              '    id "com.android.application"          version "8.2.2" apply false\n'
+              '    id "org.jetbrains.kotlin.android"     version "1.9.22" apply false\n'
               '}\n'
               '\n'
               'include ":app"\n'
@@ -351,7 +381,7 @@ jobs:
           with open('android/settings.gradle', 'w') as f:
               f.write(settings)
 
-          # android/AndroidManifest.xml (root-level fallback marker for Flutter tooling)
+          # android/AndroidManifest.xml  (root-level Flutter tooling marker)
           root_manifest = (
               '<?xml version="1.0" encoding="utf-8"?>\n'
               '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
@@ -365,7 +395,11 @@ jobs:
           with open('android/AndroidManifest.xml', 'w') as f:
               f.write(root_manifest)
 
-          # android/app/build.gradle (Groovy DSL)
+          # ── android/app/build.gradle  (Groovy DSL) ────────────────────────
+          # FIX: signingConfigs.release reads SIGNING_* env-vars injected by
+          # the "Export Signing Environment Variables" step above.  If those
+          # vars are absent (local dev), it falls back to the standard debug
+          # keystore so the build never fails with an unsigned-APK error.
           app_build = (
               'plugins {\n'
               '    id \'com.android.application\'\n'
@@ -389,18 +423,28 @@ jobs:
               '        }\n'
               '    }\n'
               '\n'
-              '    // ─────────────────────────────────────────────────────────────\n'
-              '    // FIX: Without an explicit signingConfig, AGP 8.x silently skips\n'
-              '    // writing the final APK to the output directory for release builds,\n'
-              '    // causing Flutter to report "Gradle build failed to produce an .apk\n'
-              '    // file". Attaching signingConfigs.debug uses the debug keystore that\n'
-              '    // is always present in the Android SDK on CI runners, ensuring the\n'
-              '    // APK is fully signed and written to build/app/outputs/flutter-apk/.\n'
-              '    // ─────────────────────────────────────────────────────────────\n'
+              '    signingConfigs {\n'
+              '        release {\n'
+              '            def envStore = System.getenv("SIGNING_STORE_FILE")\n'
+              '            if (envStore != null && !envStore.isEmpty()) {\n'
+              '                storeFile     file(envStore)\n'
+              '                storePassword System.getenv("SIGNING_STORE_PASSWORD")\n'
+              '                keyAlias      System.getenv("SIGNING_KEY_ALIAS")\n'
+              '                keyPassword   System.getenv("SIGNING_KEY_PASSWORD")\n'
+              '            } else {\n'
+              '                // Fallback for local builds without env-vars set\n'
+              '                storeFile     file("${System.getProperty(\'user.home\')}/.android/debug.keystore")\n'
+              '                storePassword "android"\n'
+              '                keyAlias      "androiddebugkey"\n'
+              '                keyPassword   "android"\n'
+              '            }\n'
+              '        }\n'
+              '    }\n'
+              '\n'
               '    buildTypes {\n'
               '        release {\n'
-              '            signingConfig signingConfigs.debug\n'
-              '            minifyEnabled true\n'
+              '            signingConfig   signingConfigs.release\n'
+              '            minifyEnabled   true\n'
               '            shrinkResources true\n'
               '            proguardFiles getDefaultProguardFile(\'proguard-android-optimize.txt\'), \'proguard-rules.pro\'\n'
               '        }\n'
@@ -432,12 +476,14 @@ jobs:
           print("All Gradle files generated successfully.")
           PYEOF
 
+      # ── local.properties ─────────────────────────────────────────────────
       - name: Write local.properties
         run: |
-          echo "flutter.sdk=$FLUTTER_ROOT"   > android/local.properties
-          echo "sdk.dir=$ANDROID_HOME"       >> android/local.properties
-          echo "ndk.dir=$ANDROID_NDK_HOME"   >> android/local.properties
+          echo "flutter.sdk=$FLUTTER_ROOT"  >  android/local.properties
+          echo "sdk.dir=$ANDROID_HOME"      >> android/local.properties
+          echo "ndk.dir=$ANDROID_NDK_HOME"  >> android/local.properties
 
+      # ── Gradle wrapper ────────────────────────────────────────────────────
       - name: Install Gradle 8.6 and Generate Wrapper
         run: |
           curl -sL https://services.gradle.org/distributions/gradle-8.6-bin.zip \
@@ -446,12 +492,20 @@ jobs:
           GRADLE_BIN=/tmp/gradle_install/gradle-8.6/bin/gradle
           cd android && $GRADLE_BIN wrapper --gradle-version 8.6
 
+      # ── Flutter pub get ───────────────────────────────────────────────────
       - name: Get Flutter Dependencies
         run: flutter pub get
 
+      # ── Build ─────────────────────────────────────────────────────────────
       - name: Build Release APK
         run: flutter build apk --release
+        env:
+          SIGNING_STORE_FILE:     ${{ env.SIGNING_STORE_FILE }}
+          SIGNING_KEY_ALIAS:      ${{ env.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD:   ${{ env.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ env.SIGNING_STORE_PASSWORD }}
 
+      # ── Upload ────────────────────────────────────────────────────────────
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
