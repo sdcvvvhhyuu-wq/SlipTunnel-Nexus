@@ -260,38 +260,48 @@ jobs:
           else:
               print("MainActivity.kt already exists, skipping.")
 
+          # ──────────────────────────────────────────────────────────────────────
+          # FIX: proguard-rules.pro must include -dontwarn com.google.android.play.core.**
+          #
+          # R8 (AGP 8.x) treats unresolvable class references as hard build errors.
+          # Flutter's engine bytecode internally references com.google.android.play.core.*
+          # (PlayStoreDeferredComponentManager, FlutterPlayStoreSplitApplication, etc.)
+          # even when the app does NOT use deferred/dynamic feature components.
+          # Since play-core is not a declared dependency, R8 cannot resolve those
+          # references and aborts with:
+          #   "Missing classes detected while running R8 ... missing_rules.txt"
+          # Adding -dontwarn suppresses the error for these Flutter-internal references.
+          # ──────────────────────────────────────────────────────────────────────
           pro_path = 'android/app/proguard-rules.pro'
-          if not os.path.exists(pro_path):
-              pro = (
-                  '-keep class io.flutter.** { *; }\n'
-                  '-keep class io.flutter.embedding.** { *; }\n'
-                  '-dontwarn io.flutter.embedding.**\n'
-                  '-keep class com.argotunnel.** { *; }\n'
-                  '-keepclassmembers class * {\n'
-                  '    @android.webkit.JavascriptInterface <methods>;\n'
-                  '}\n'
-              )
-              open(pro_path, 'w').write(pro)
-              print("Generated proguard-rules.pro")
-          else:
-              print("proguard-rules.pro already exists, skipping.")
+          pro = (
+              '-keep class io.flutter.** { *; }\n'
+              '-keep class io.flutter.embedding.** { *; }\n'
+              '-dontwarn io.flutter.embedding.**\n'
+              '-keep class com.argotunnel.** { *; }\n'
+              '-keepclassmembers class * {\n'
+              '    @android.webkit.JavascriptInterface <methods>;\n'
+              '}\n'
+              '\n'
+              '# Suppress R8 hard errors for Play Core classes referenced by Flutter\n'
+              '# engine internals (PlayStoreDeferredComponentManager, etc.).\n'
+              '# These classes are not needed because this app does not use\n'
+              '# Flutter deferred/dynamic feature components.\n'
+              '-dontwarn com.google.android.play.core.**\n'
+          )
+          # Always overwrite — ensures the rule is present even if file pre-existed
+          # without the dontwarn line (e.g. partial repo state).
+          open(pro_path, 'w').write(pro)
+          print("Written proguard-rules.pro (with Play Core dontwarn fix)")
           PYEOF
 
       - name: Generate Flutter-Compatible Gradle Files
         run: |
           python3 << 'PYEOF'
           # ─────────────────────────────────────────────────────────────────────
-          # FIX: The root android/build.gradle now declares allprojects.repositories
-          # with google() and mavenCentral(). Without this block, Gradle only
-          # searches storage.googleapis.com/download.flutter.io (the Flutter repo)
-          # for ALL dependencies, which causes "Could not find" errors for every
-          # standard Android/Kotlin artifact (kotlin-stdlib, core-ktx, appcompat,
-          # material, kotlinx-coroutines, androidx.lifecycle, etc.).
-          #
-          # The Flutter Gradle plugin appends its own repo at resolution time, but
-          # it does NOT add google() or mavenCentral() to subproject repositories.
-          # allprojects.repositories in the root build.gradle is the correct and
-          # fully compatible way to provide these repos to the :app subproject.
+          # The root android/build.gradle declares allprojects.repositories with
+          # google() and mavenCentral(). Without this block, Gradle only searches
+          # storage.googleapis.com/download.flutter.io for ALL dependencies, which
+          # causes "Could not find" errors for every standard Android/Kotlin artifact.
           # ─────────────────────────────────────────────────────────────────────
 
           # gradle.properties
@@ -301,8 +311,7 @@ jobs:
               f.write('org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n')
               f.write('org.gradle.daemon=false\n')
 
-          # android/build.gradle (Groovy DSL root — satisfies isUsingGradle())
-          # *** KEY FIX: allprojects.repositories added here ***
+          # android/build.gradle (Groovy DSL root)
           with open('android/build.gradle', 'w') as f:
               f.write(
                   'allprojects {\n'
@@ -356,7 +365,7 @@ jobs:
           with open('android/AndroidManifest.xml', 'w') as f:
               f.write(root_manifest)
 
-          # android/app/build.gradle (Groovy DSL — satisfies isSupportedVersion())
+          # android/app/build.gradle (Groovy DSL)
           app_build = (
               'plugins {\n'
               '    id \'com.android.application\'\n'
