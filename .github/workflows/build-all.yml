@@ -18,7 +18,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-          cache-dependency-path: core/go.sum
+          # ویژگی cache-dependency-path حذف شد تا نبود فایل go.sum مانع اجرای پایپ‌لاین نشود
 
       - name: Setup Rust
         run: |
@@ -149,7 +149,6 @@ jobs:
               f.write('org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n')
 
           # settings.gradle.kts — Flutter-compatible
-          # Uses $flutterSdkPath (Kotlin interpolation) to locate Flutter's Gradle plugin
           settings = (
               'pluginManagement {\n'
               '    val flutterSdkPath = run {\n'
@@ -176,11 +175,11 @@ jobs:
           with open('android/settings.gradle.kts', 'w') as f:
               f.write(settings)
 
-          # Root build.gradle.kts — empty, plugins declared in settings
+          # Root build.gradle.kts
           with open('android/build.gradle.kts', 'w') as f:
               f.write('// Root build file. Plugin versions are declared in settings.gradle.kts.\n')
 
-          # app/build.gradle.kts — full rewrite adding Flutter plugin and flutter{} block
+          # app/build.gradle.kts
           app_build = (
               'plugins {\n'
               '    id("com.android.application")\n'
@@ -241,6 +240,11 @@ jobs:
 
           print("All Gradle files generated successfully.")
           PYEOF
+
+          # ---- تغییر جدید و حیاتی شما در این بخش اعمال شد ----
+          # تولید خودکار فایل local.properties دقیقاً پیش از اجرای گریدل wrapper
+          echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
+          echo "sdk.dir=$ANDROID_HOME"    >> android/local.properties
 
           cd android && gradle wrapper --gradle-version 8.6
 
