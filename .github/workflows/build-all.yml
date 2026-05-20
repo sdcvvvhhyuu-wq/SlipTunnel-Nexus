@@ -181,6 +181,17 @@ jobs:
       # termination caused by unindented XML/Kotlin content. All three files
       # (AndroidManifest.xml, MainActivity.kt, proguard-rules.pro) are handled in
       # a single step so the existence check and file write stay in one block.
+      #
+      # KEY FIX: The generated AndroidManifest.xml now includes:
+      #   1. <meta-data android:name="flutterEmbedding" android:value="2"/> —
+      #      required by Flutter 3.x tooling to confirm Android embedding v2.
+      #      Without it the build tool detects "deprecated v1 embedding" and exits 1.
+      #   2. <activity android:name=".MainActivity"> with a LAUNCHER intent-filter —
+      #      Flutter must find a launchable activity to wire up its entry point.
+      #
+      # NOTE: When the repo already ships android/app/src/main/AndroidManifest.xml
+      # (i.e. it is committed to version control), this step is skipped entirely.
+      # Ensure the committed manifest also contains both elements listed above.
       - name: Generate Android Source Files if missing
         run: |
           python3 << 'PYEOF'
@@ -191,31 +202,62 @@ jobs:
               os.makedirs(os.path.dirname(manifest_path), exist_ok=True)
               manifest = (
                   '<?xml version="1.0" encoding="utf-8"?>\n'
-                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+                  '<manifest xmlns:android="http://schemas.android.com/apk/res/android"\n'
+                  '    xmlns:tools="http://schemas.android.com/tools">\n'
+                  '\n'
                   '    <uses-permission android:name="android.permission.INTERNET"/>\n'
+                  '    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>\n'
+                  '    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>\n'
+                  '    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>\n'
                   '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>\n'
+                  '    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>\n'
+                  '    <uses-permission android:name="android.permission.BLUETOOTH"/>\n'
+                  '    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"/>\n'
+                  '    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>\n'
                   '    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>\n'
+                  '\n'
                   '    <application\n'
-                  '        android:label="SlipTunnel Nexus"\n'
+                  '        android:allowBackup="false"\n'
+                  '        android:dataExtractionRules="@xml/data_extraction_rules"\n'
+                  '        android:fullBackupContent="false"\n'
                   '        android:icon="@mipmap/ic_launcher"\n'
+                  '        android:label="SlipTunnel Nexus"\n'
                   '        android:roundIcon="@mipmap/ic_launcher_round"\n'
                   '        android:supportsRtl="true"\n'
-                  '        android:theme="@style/Theme.AppCompat.Light.NoActionBar"\n'
-                  '        android:dataExtractionRules="@xml/data_extraction_rules"\n'
-                  '        android:fullBackupContent="false">\n'
+                  '        android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"\n'
+                  '        tools:targetApi="31">\n'
+                  '\n'
+                  '        <!-- Required: tells Flutter tooling this project uses Android embedding v2.\n'
+                  '             Absence of this tag causes "Build failed due to use of deprecated\n'
+                  '             Android v1 embedding" and exits with code 1. -->\n'
+                  '        <meta-data\n'
+                  '            android:name="flutterEmbedding"\n'
+                  '            android:value="2" />\n'
+                  '\n'
                   '        <activity\n'
                   '            android:name=".MainActivity"\n'
-                  '            android:exported="true"\n'
-                  '            android:launchMode="singleTop"\n'
-                  '            android:theme="@style/Theme.AppCompat.Light.NoActionBar"\n'
                   '            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"\n'
+                  '            android:exported="true"\n'
                   '            android:hardwareAccelerated="true"\n'
+                  '            android:launchMode="singleTop"\n'
+                  '            android:theme="@style/Theme.AppCompat.DayNight.NoActionBar"\n'
                   '            android:windowSoftInputMode="adjustResize">\n'
                   '            <intent-filter>\n'
                   '                <action android:name="android.intent.action.MAIN"/>\n'
                   '                <category android:name="android.intent.category.LAUNCHER"/>\n'
                   '            </intent-filter>\n'
                   '        </activity>\n'
+                  '\n'
+                  '        <service\n'
+                  '            android:name=".SlipVpnService"\n'
+                  '            android:exported="false"\n'
+                  '            android:foregroundServiceType="specialUse"\n'
+                  '            android:permission="android.permission.BIND_VPN_SERVICE">\n'
+                  '            <intent-filter>\n'
+                  '                <action android:name="android.net.VpnService" />\n'
+                  '            </intent-filter>\n'
+                  '        </service>\n'
+                  '\n'
                   '    </application>\n'
                   '</manifest>\n'
               )
