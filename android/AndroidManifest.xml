@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Marker file for Flutter 3.x tooling.
+     When Flutter's isUsingGradle() check returns false, the build tool resolves
+     the manifest path to this file (android/AndroidManifest.xml) rather than
+     android/app/src/main/AndroidManifest.xml. The flutterEmbedding metadata
+     below ensures the v2 embedding check passes in either code path.
+     The authoritative application manifest is android/app/src/main/AndroidManifest.xml. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2" />
+    </application>
+</manifest>
