@@ -82,6 +82,12 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.6'
+          channel: 'stable'
+
       - name: Download Core Artifacts
         uses: actions/download-artifact@v4
         with:
@@ -90,81 +96,162 @@ jobs:
 
       - name: Generate Android Resources Automatically
         run: |
-          # Create all required resource directories
           mkdir -p android/app/src/main/res/drawable
           mkdir -p android/app/src/main/res/mipmap-anydpi-v26
           mkdir -p android/app/src/main/res/xml
 
-          # Launcher background drawable
           printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 0,0 H 108 V 108 H 0 Z" android:fillColor="#000000"/></vector>' \
             > android/app/src/main/res/drawable/ic_launcher_background.xml
 
-          # Launcher foreground drawable
           printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108"><path android:pathData="M 54,30 L 74,66 H 34 Z" android:fillColor="#00E5FF"/></vector>' \
             > android/app/src/main/res/drawable/ic_launcher_foreground.xml
 
-          # Adaptive icon — standard
           printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/ic_launcher_background"/><foreground android:drawable="@drawable/ic_launcher_foreground"/></adaptive-icon>' \
             > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
 
-          # Adaptive icon — round (required by android:roundIcon in manifest)
           printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android"><background android:drawable="@drawable/ic_launcher_background"/><foreground android:drawable="@drawable/ic_launcher_foreground"/></adaptive-icon>' \
             > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
 
-          # Data extraction rules (mandatory for targetSdk 31+)
           printf '%s\n' '<?xml version="1.0" encoding="utf-8"?><data-extraction-rules><cloud-backup><exclude domain="root" path="."/></cloud-backup><device-transfer><exclude domain="root" path="."/></device-transfer></data-extraction-rules>' \
             > android/app/src/main/res/xml/data_extraction_rules.xml
 
-      - name: Generate Root Gradle Configs Automatically
+      - name: Generate pubspec.yaml if missing
         run: |
-          cd android
+          if [ ! -f "pubspec.yaml" ]; then
+            python3 -c "
+          lines = [
+              'name: sliptunnel_nexus',
+              'description: SlipTunnel Nexus - Advanced VPN Application',
+              'version: 1.4.0+1',
+              'environment:',
+              '  sdk: \">=3.0.0 <4.0.0\"',
+              '  flutter: \">=3.10.0\"',
+              'dependencies:',
+              '  flutter:',
+              '    sdk: flutter',
+              'dev_dependencies:',
+              '  flutter_test:',
+              '    sdk: flutter',
+              'flutter:',
+              '  uses-material-design: true',
+          ]
+          open('pubspec.yaml', 'w').write('\n'.join(lines) + '\n')
+          "
+          fi
 
-          # 1. gradle.properties — enable AndroidX and set JVM memory
-          cat << 'EOF' > gradle.properties
-          android.useAndroidX=true
-          android.enableJetifier=true
-          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
-          EOF
+      - name: Generate Flutter-Compatible Gradle Files
+        run: |
+          python3 << 'PYEOF'
+          # gradle.properties
+          with open('android/gradle.properties', 'w') as f:
+              f.write('android.useAndroidX=true\n')
+              f.write('android.enableJetifier=true\n')
+              f.write('org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n')
 
-          # 2. Root build.gradle.kts — declare plugin versions
-          cat << 'EOF' > build.gradle.kts
-          plugins {
-              id("com.android.application") version "8.2.2" apply false
-              id("org.jetbrains.kotlin.android") version "1.9.22" apply false
-          }
-          EOF
+          # settings.gradle.kts — Flutter-compatible
+          # Uses $flutterSdkPath (Kotlin interpolation) to locate Flutter's Gradle plugin
+          settings = (
+              'pluginManagement {\n'
+              '    val flutterSdkPath = run {\n'
+              '        val properties = java.util.Properties()\n'
+              '        file("local.properties").inputStream().use { properties.load(it) }\n'
+              '        val flutterSdkPath = properties.getProperty("flutter.sdk")\n'
+              '        require(flutterSdkPath != null) { "flutter.sdk not set in local.properties" }\n'
+              '        flutterSdkPath\n'
+              '    }\n'
+              '    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")\n'
+              '    repositories {\n'
+              '        google()\n'
+              '        mavenCentral()\n'
+              '        gradlePluginPortal()\n'
+              '    }\n'
+              '}\n'
+              'plugins {\n'
+              '    id("dev.flutter.flutter-plugin-loader") version "1.0.0"\n'
+              '    id("com.android.application") version "8.2.2" apply false\n'
+              '    id("org.jetbrains.kotlin.android") version "1.9.22" apply false\n'
+              '}\n'
+              'include(":app")\n'
+          )
+          with open('android/settings.gradle.kts', 'w') as f:
+              f.write(settings)
 
-          # 3. settings.gradle.kts — declare repositories and module structure
-          cat << 'EOF' > settings.gradle.kts
-          pluginManagement {
-              repositories {
-                  google()
-                  mavenCentral()
-                  gradlePluginPortal()
-              }
-          }
-          dependencyResolutionManagement {
-              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-              repositories {
-                  google()
-                  mavenCentral()
-              }
-          }
-          rootProject.name = "SlipTunnel-Nexus"
-          include(":app")
-          EOF
+          # Root build.gradle.kts — empty, plugins declared in settings
+          with open('android/build.gradle.kts', 'w') as f:
+              f.write('// Root build file. Plugin versions are declared in settings.gradle.kts.\n')
 
-          # 4. Generate the Gradle wrapper
-          gradle wrapper --gradle-version 8.6
+          # app/build.gradle.kts — full rewrite adding Flutter plugin and flutter{} block
+          app_build = (
+              'plugins {\n'
+              '    id("com.android.application")\n'
+              '    id("org.jetbrains.kotlin.android")\n'
+              '    id("dev.flutter.flutter-gradle-plugin")\n'
+              '}\n\n'
+              'android {\n'
+              '    namespace = "com.argotunnel"\n'
+              '    compileSdk = 34\n'
+              '    ndkVersion = "26.1.10909125"\n\n'
+              '    defaultConfig {\n'
+              '        applicationId = "com.argotunnel"\n'
+              '        minSdk = 24\n'
+              '        targetSdk = 34\n'
+              '        versionCode = 1\n'
+              '        versionName = "1.4.0-OMNI-FINAL"\n'
+              '        externalNativeBuild {\n'
+              '            cmake {\n'
+              '                cppFlags += "-std=c++17"\n'
+              '            }\n'
+              '        }\n'
+              '        ndk {\n'
+              '            abiFilters.add("arm64-v8a")\n'
+              '        }\n'
+              '    }\n\n'
+              '    buildTypes {\n'
+              '        release {\n'
+              '            isMinifyEnabled = true\n'
+              '            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")\n'
+              '        }\n'
+              '    }\n\n'
+              '    externalNativeBuild {\n'
+              '        cmake {\n'
+              '            path = file("src/main/cpp/CMakeLists.txt")\n'
+              '            version = "3.22.1"\n'
+              '        }\n'
+              '    }\n\n'
+              '    compileOptions {\n'
+              '        sourceCompatibility = JavaVersion.VERSION_17\n'
+              '        targetCompatibility = JavaVersion.VERSION_17\n'
+              '    }\n'
+              '    kotlinOptions {\n'
+              '        jvmTarget = "17"\n'
+              '    }\n'
+              '}\n\n'
+              'flutter {\n'
+              '    source = "../.."\n'
+              '}\n\n'
+              'dependencies {\n'
+              '    implementation("androidx.core:core-ktx:1.12.0")\n'
+              '    implementation("androidx.appcompat:appcompat:1.6.1")\n'
+              '    implementation("com.google.android.material:material:1.11.0")\n'
+              '    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")\n'
+              '}\n'
+          )
+          with open('android/app/build.gradle.kts', 'w') as f:
+              f.write(app_build)
+
+          print("All Gradle files generated successfully.")
+          PYEOF
+
+          cd android && gradle wrapper --gradle-version 8.6
+
+      - name: Get Flutter Dependencies
+        run: flutter pub get
 
       - name: Build Release APK
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew assembleRelease
+        run: flutter build apk --release
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: hiddify-sliptunnel-nexus-release
-          path: android/app/build/outputs/apk/release/*.apk
+          path: build/app/outputs/flutter-apk/app-release.apk
