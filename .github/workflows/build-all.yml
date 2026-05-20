@@ -18,7 +18,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-          # ویژگی cache-dependency-path حذف شد تا نبود فایل go.sum مانع اجرای پایپ‌لاین نشود
+          cache-dependency-path: core/go.sum
 
       - name: Setup Rust
         run: |
@@ -94,7 +94,7 @@ jobs:
           name: native-libraries
           path: android/app/src/main/jniLibs/arm64-v8a/
 
-      - name: Generate Android Resources Automatically
+      - name: Generate Android Resources
         run: |
           mkdir -p android/app/src/main/res/drawable
           mkdir -p android/app/src/main/res/mipmap-anydpi-v26
@@ -139,16 +139,113 @@ jobs:
           "
           fi
 
+      # Flutter requires lib/main.dart to exist. Only created if absent so existing
+      # app source is never overwritten.
+      - name: Generate lib/main.dart if missing
+        run: |
+          if [ ! -f "lib/main.dart" ]; then
+            mkdir -p lib
+            cat > lib/main.dart << 'DART_EOF'
+import 'package:flutter/material.dart';
+
+void main() {
+  runApp(const SlipTunnelApp());
+}
+
+class SlipTunnelApp extends StatelessWidget {
+  const SlipTunnelApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const MaterialApp(
+      title: 'SlipTunnel Nexus',
+      home: Scaffold(
+        body: Center(child: Text('SlipTunnel Nexus')),
+      ),
+    );
+  }
+}
+DART_EOF
+          fi
+
+      # Generates the three required Android source files only when absent so that
+      # any files already present in the repository are preserved.
+      - name: Generate Android Source Files if missing
+        run: |
+          # AndroidManifest.xml
+          if [ ! -f "android/app/src/main/AndroidManifest.xml" ]; then
+            mkdir -p android/app/src/main
+            cat > android/app/src/main/AndroidManifest.xml << 'XML_EOF'
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <application
+        android:label="SlipTunnel Nexus"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
+XML_EOF
+          fi
+
+          # MainActivity.kt
+          if [ ! -f "android/app/src/main/kotlin/com/argotunnel/MainActivity.kt" ]; then
+            mkdir -p android/app/src/main/kotlin/com/argotunnel
+            cat > android/app/src/main/kotlin/com/argotunnel/MainActivity.kt << 'KT_EOF'
+package com.argotunnel
+
+import io.flutter.embedding.android.FlutterActivity
+
+class MainActivity : FlutterActivity()
+KT_EOF
+          fi
+
+          # proguard-rules.pro (referenced in app/build.gradle.kts release block)
+          if [ ! -f "android/app/proguard-rules.pro" ]; then
+            cat > android/app/proguard-rules.pro << 'PRO_EOF'
+-keep class io.flutter.** { *; }
+-keep class io.flutter.embedding.** { *; }
+-dontwarn io.flutter.embedding.**
+-keep class com.argotunnel.** { *; }
+-keepclassmembers class * {
+    @android.webkit.JavascriptInterface <methods>;
+}
+PRO_EOF
+          fi
+
       - name: Generate Flutter-Compatible Gradle Files
         run: |
           python3 << 'PYEOF'
+          import os
+
           # gradle.properties
           with open('android/gradle.properties', 'w') as f:
               f.write('android.useAndroidX=true\n')
               f.write('android.enableJetifier=true\n')
               f.write('org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n')
+              f.write('org.gradle.daemon=false\n')
 
           # settings.gradle.kts — Flutter-compatible
+          # Uses $flutterSdkPath (Kotlin string interpolation) to locate Flutter's Gradle plugin.
           settings = (
               'pluginManagement {\n'
               '    val flutterSdkPath = run {\n'
@@ -175,11 +272,15 @@ jobs:
           with open('android/settings.gradle.kts', 'w') as f:
               f.write(settings)
 
-          # Root build.gradle.kts
+          # Root build.gradle.kts — empty; plugin versions declared in settings
           with open('android/build.gradle.kts', 'w') as f:
               f.write('// Root build file. Plugin versions are declared in settings.gradle.kts.\n')
 
           # app/build.gradle.kts
+          # NOTE: externalNativeBuild is intentionally omitted. The native libraries
+          # (libargotunnel_rust_core.so, libargotunnel_core.so) are pre-built and
+          # placed in jniLibs/arm64-v8a/ by the download-artifact step above.
+          # Android packages them automatically without requiring a CMake build.
           app_build = (
               'plugins {\n'
               '    id("com.android.application")\n'
@@ -196,11 +297,6 @@ jobs:
               '        targetSdk = 34\n'
               '        versionCode = 1\n'
               '        versionName = "1.4.0-OMNI-FINAL"\n'
-              '        externalNativeBuild {\n'
-              '            cmake {\n'
-              '                cppFlags += "-std=c++17"\n'
-              '            }\n'
-              '        }\n'
               '        ndk {\n'
               '            abiFilters.add("arm64-v8a")\n'
               '        }\n'
@@ -208,13 +304,10 @@ jobs:
               '    buildTypes {\n'
               '        release {\n'
               '            isMinifyEnabled = true\n'
-              '            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")\n'
-              '        }\n'
-              '    }\n\n'
-              '    externalNativeBuild {\n'
-              '        cmake {\n'
-              '            path = file("src/main/cpp/CMakeLists.txt")\n'
-              '            version = "3.22.1"\n'
+              '            proguardFiles(\n'
+              '                getDefaultProguardFile("proguard-android-optimize.txt"),\n'
+              '                "proguard-rules.pro"\n'
+              '            )\n'
               '        }\n'
               '    }\n\n'
               '    compileOptions {\n'
@@ -241,12 +334,31 @@ jobs:
           print("All Gradle files generated successfully.")
           PYEOF
 
-          # ---- تغییر جدید و حیاتی شما در این بخش اعمال شد ----
-          # تولید خودکار فایل local.properties دقیقاً پیش از اجرای گریدل wrapper
+      # FIX: local.properties must exist before ANY Gradle invocation because
+      # settings.gradle.kts reads it during the configuration phase.
+      - name: Write local.properties
+        run: |
           echo "flutter.sdk=$FLUTTER_ROOT" > android/local.properties
           echo "sdk.dir=$ANDROID_HOME"    >> android/local.properties
+          echo "ndk.dir=$ANDROID_NDK_HOME" >> android/local.properties
 
-          cd android && gradle wrapper --gradle-version 8.6
+      # FIX: The ubuntu-latest runner ships with Gradle 9.x as the system binary.
+      # Gradle 9.x bundles Groovy 4.x, which removed groovy.xml.QName.
+      # Flutter 3.19.x's flutter.groovy plugin imports groovy.xml.QName at line 8,
+      # causing a compile failure during the Gradle configuration phase — even for
+      # the `gradle wrapper` task itself.
+      #
+      # Solution: Download Gradle 8.6 directly and use its binary to generate the
+      # wrapper. Gradle 8.x bundles Groovy 3.x, which is fully compatible with
+      # Flutter 3.19's Groovy plugin. The system `gradle` binary is never invoked.
+      - name: Install Gradle 8.6 and Generate Wrapper
+        run: |
+          curl -sL https://services.gradle.org/distributions/gradle-8.6-bin.zip \
+            -o /tmp/gradle-8.6-bin.zip
+          unzip -q /tmp/gradle-8.6-bin.zip -d /tmp/gradle_install
+          GRADLE_BIN=/tmp/gradle_install/gradle-8.6/bin/gradle
+
+          cd android && $GRADLE_BIN wrapper --gradle-version 8.6
 
       - name: Get Flutter Dependencies
         run: flutter pub get
