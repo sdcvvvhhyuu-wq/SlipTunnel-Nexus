@@ -24,16 +24,44 @@ android {
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // SIGNING CONFIG — Kotlin DSL
+    // اگر متغیرهای محیطی تنظیم شده باشند (CI)، از آن‌ها استفاده می‌شود.
+    // در غیر این صورت، debug keystore پیش‌فرض Android SDK به‌کار می‌رود.
+    // ─────────────────────────────────────────────────────────────────────────
+    signingConfigs {
+        create("release") {
+            val envStoreFile = System.getenv("SIGNING_STORE_FILE")
+            if (!envStoreFile.isNullOrEmpty()) {
+                storeFile     = file(envStoreFile)
+                storePassword = System.getenv("SIGNING_STORE_PASSWORD")
+                keyAlias      = System.getenv("SIGNING_KEY_ALIAS")
+                keyPassword   = System.getenv("SIGNING_KEY_PASSWORD")
+            } else {
+                // Fallback: debug keystore همیشه روی SDK موجود است
+                storeFile     = file("${System.getProperty("user.home")}/.android/debug.keystore")
+                storePassword = "android"
+                keyAlias      = "androiddebugkey"
+                keyPassword   = "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
-            isMinifyEnabled = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            signingConfig    = signingConfigs.getByName("release")
+            isMinifyEnabled  = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 
     externalNativeBuild {
         cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
+            path    = file("src/main/cpp/CMakeLists.txt")
             version = "3.22.1"
         }
     }
