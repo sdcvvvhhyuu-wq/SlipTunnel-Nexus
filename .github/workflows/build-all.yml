@@ -301,6 +301,21 @@ jobs:
       - name: Generate Flutter-Compatible Gradle Files
         run: |
           python3 << 'PYEOF'
+          # ─────────────────────────────────────────────────────────────────────
+          # ALL THREE Gradle files are intentionally written in Groovy DSL
+          # (.gradle, not .gradle.kts). Flutter 3.19.x performs static filesystem
+          # checks before invoking Gradle:
+          #
+          #   isUsingGradle()    → looks for android/build.gradle (Groovy only)
+          #   isSupportedVersion → looks for android/app/build.gradle (Groovy only)
+          #
+          # These checks do NOT recognise .gradle.kts (Kotlin DSL) equivalents.
+          # If either check fails, the build aborts with "unsupported Gradle
+          # project" before Gradle is ever invoked, regardless of manifest content.
+          # Using Groovy DSL for all three root-level files satisfies both checks
+          # and remains fully compatible with Gradle 8.6 and the Kotlin plugin.
+          # ─────────────────────────────────────────────────────────────────────
+
           # gradle.properties
           with open('android/gradle.properties', 'w') as f:
               f.write('android.useAndroidX=true\n')
@@ -308,53 +323,48 @@ jobs:
               f.write('org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8\n')
               f.write('org.gradle.daemon=false\n')
 
-          # settings.gradle.kts — Flutter-compatible
-          # Uses $flutterSdkPath (Kotlin string interpolation) to locate Flutter's Gradle plugin.
+          # android/build.gradle (Groovy DSL root — satisfies isUsingGradle())
+          with open('android/build.gradle', 'w') as f:
+              f.write('// Root build file. Plugin versions are declared in settings.gradle.\n')
+
+          # android/settings.gradle (Groovy DSL — replaces settings.gradle.kts)
+          # The immediately-invoked closure { ... }() is idiomatic Groovy and is
+          # the standard pattern used by flutter create in Flutter 3.16+.
           settings = (
               'pluginManagement {\n'
-              '    val flutterSdkPath = run {\n'
-              '        val properties = java.util.Properties()\n'
-              '        file("local.properties").inputStream().use { properties.load(it) }\n'
-              '        val flutterSdkPath = properties.getProperty("flutter.sdk")\n'
-              '        require(flutterSdkPath != null) { "flutter.sdk not set in local.properties" }\n'
-              '        flutterSdkPath\n'
-              '    }\n'
-              '    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")\n'
+              '    def flutterSdkPath = {\n'
+              '        def properties = new Properties()\n'
+              '        file("local.properties").withInputStream { properties.load(it) }\n'
+              '        def flutterSdkPath = properties.getProperty("flutter.sdk")\n'
+              '        assert flutterSdkPath != null, "flutter.sdk not set in local.properties"\n'
+              '        return flutterSdkPath\n'
+              '    }()\n'
+              '    includeBuild("${flutterSdkPath}/packages/flutter_tools/gradle")\n'
               '    repositories {\n'
               '        google()\n'
               '        mavenCentral()\n'
               '        gradlePluginPortal()\n'
               '    }\n'
               '}\n'
+              '\n'
               'plugins {\n'
-              '    id("dev.flutter.flutter-plugin-loader") version "1.0.0"\n'
-              '    id("com.android.application") version "8.2.2" apply false\n'
-              '    id("org.jetbrains.kotlin.android") version "1.9.22" apply false\n'
+              '    id "dev.flutter.flutter-plugin-loader" version "1.0.0"\n'
+              '    id "com.android.application" version "8.2.2" apply false\n'
+              '    id "org.jetbrains.kotlin.android" version "1.9.22" apply false\n'
               '}\n'
-              'include(":app")\n'
+              '\n'
+              'include ":app"\n'
           )
-          with open('android/settings.gradle.kts', 'w') as f:
+          with open('android/settings.gradle', 'w') as f:
               f.write(settings)
 
-          # FIX: Flutter 3.19.x isUsingGradle() only detects 'build.gradle' (Groovy DSL),
-          # NOT 'build.gradle.kts'. When isUsingGradle() returns false Flutter resolves the
-          # manifest path as 'android/AndroidManifest.xml' (old v1 root location) rather than
-          # 'android/app/src/main/AndroidManifest.xml', ignoring the flutterEmbedding metadata
-          # and aborting the build with "deprecated Android v1 embedding" (exit code 1).
-          # Writing 'build.gradle' (Groovy, valid as a plain comment file) forces
-          # isUsingGradle() to return true, directing Flutter to the correct v2 manifest path.
-          with open('android/build.gradle', 'w') as f:
-              f.write('// Root build file. Plugin versions are declared in settings.gradle.kts.\n')
-
-          # Belt-and-suspenders: also write a minimal root-level AndroidManifest.xml containing
-          # the flutterEmbedding v2 marker. If isUsingGradle() ever returns false on a future
-          # runner, Flutter will read this file instead of app/src/main/AndroidManifest.xml and
-          # still find the v2 marker, preventing the v1 embedding failure.
+          # android/AndroidManifest.xml (root-level fallback marker)
+          # Flutter resolves the manifest path to this file when isUsingGradle()
+          # returns false. The flutterEmbedding metadata here ensures the v2
+          # embedding check passes in either code path. The authoritative
+          # application manifest remains android/app/src/main/AndroidManifest.xml.
           root_manifest = (
               '<?xml version="1.0" encoding="utf-8"?>\n'
-              '<!-- Marker file: tells Flutter 3.x tooling this project uses Android embedding v2\n'
-              '     when the Gradle project structure check (isUsingGradle) returns false.\n'
-              '     The authoritative manifest is android/app/src/main/AndroidManifest.xml. -->\n'
               '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
               '    <application>\n'
               '        <meta-data\n'
@@ -366,59 +376,61 @@ jobs:
           with open('android/AndroidManifest.xml', 'w') as f:
               f.write(root_manifest)
 
-          # app/build.gradle.kts
-          # externalNativeBuild is intentionally omitted. The native libraries
-          # (libargotunnel_rust_core.so, libargotunnel_core.so) are pre-built and
-          # placed in jniLibs/arm64-v8a/ by the download-artifact step.
-          # Android packages them automatically without a CMake build.
+          # android/app/build.gradle (Groovy DSL — satisfies isSupportedVersion())
+          # externalNativeBuild is intentionally omitted. The native .so libraries
+          # are pre-built and placed in jniLibs/arm64-v8a/ by the download-artifact
+          # step; Android packages them automatically without a CMake build.
           app_build = (
               'plugins {\n'
-              '    id("com.android.application")\n'
-              '    id("org.jetbrains.kotlin.android")\n'
-              '    id("dev.flutter.flutter-gradle-plugin")\n'
-              '}\n\n'
+              '    id \'com.android.application\'\n'
+              '    id \'org.jetbrains.kotlin.android\'\n'
+              '    id \'dev.flutter.flutter-gradle-plugin\'\n'
+              '}\n'
+              '\n'
               'android {\n'
-              '    namespace = "com.argotunnel"\n'
-              '    compileSdk = 34\n'
-              '    ndkVersion = "26.1.10909125"\n\n'
+              '    namespace \'com.argotunnel\'\n'
+              '    compileSdk 34\n'
+              '    ndkVersion "26.1.10909125"\n'
+              '\n'
               '    defaultConfig {\n'
-              '        applicationId = "com.argotunnel"\n'
-              '        minSdk = 24\n'
-              '        targetSdk = 34\n'
-              '        versionCode = 1\n'
-              '        versionName = "1.4.0-OMNI-FINAL"\n'
+              '        applicationId "com.argotunnel"\n'
+              '        minSdk 24\n'
+              '        targetSdk 34\n'
+              '        versionCode 1\n'
+              '        versionName "1.4.0-OMNI-FINAL"\n'
               '        ndk {\n'
-              '            abiFilters.add("arm64-v8a")\n'
+              '            abiFilters \'arm64-v8a\'\n'
               '        }\n'
-              '    }\n\n'
+              '    }\n'
+              '\n'
               '    buildTypes {\n'
               '        release {\n'
-              '            isMinifyEnabled = true\n'
-              '            proguardFiles(\n'
-              '                getDefaultProguardFile("proguard-android-optimize.txt"),\n'
-              '                "proguard-rules.pro"\n'
-              '            )\n'
+              '            minifyEnabled true\n'
+              '            proguardFiles getDefaultProguardFile(\'proguard-android-optimize.txt\'), \'proguard-rules.pro\'\n'
               '        }\n'
-              '    }\n\n'
+              '    }\n'
+              '\n'
               '    compileOptions {\n'
-              '        sourceCompatibility = JavaVersion.VERSION_17\n'
-              '        targetCompatibility = JavaVersion.VERSION_17\n'
+              '        sourceCompatibility JavaVersion.VERSION_17\n'
+              '        targetCompatibility JavaVersion.VERSION_17\n'
               '    }\n'
               '    kotlinOptions {\n'
-              '        jvmTarget = "17"\n'
+              '        jvmTarget = \'17\'\n'
               '    }\n'
-              '}\n\n'
+              '}\n'
+              '\n'
               'flutter {\n'
-              '    source = "../.."\n'
-              '}\n\n'
+              '    source \'../..\'  \n'
+              '}\n'
+              '\n'
               'dependencies {\n'
-              '    implementation("androidx.core:core-ktx:1.12.0")\n'
-              '    implementation("androidx.appcompat:appcompat:1.6.1")\n'
-              '    implementation("com.google.android.material:material:1.11.0")\n'
-              '    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")\n'
+              '    implementation \'androidx.core:core-ktx:1.12.0\'\n'
+              '    implementation \'androidx.appcompat:appcompat:1.6.1\'\n'
+              '    implementation \'com.google.android.material:material:1.11.0\'\n'
+              '    implementation \'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3\'\n'
               '}\n'
           )
-          with open('android/app/build.gradle.kts', 'w') as f:
+          with open('android/app/build.gradle', 'w') as f:
               f.write(app_build)
 
           print("All Gradle files generated successfully.")
@@ -441,6 +453,11 @@ jobs:
       # Fix: download Gradle 8.6 directly and use its binary to generate the
       # wrapper. Gradle 8.x bundles Groovy 3.x, which is fully compatible with
       # Flutter 3.19's Groovy plugin. The system `gradle` binary is never invoked.
+      #
+      # Note: settings.gradle and app/build.gradle are written in Groovy DSL
+      # (.gradle), not Kotlin DSL (.gradle.kts). Flutter 3.19.x's static project
+      # validation checks (isUsingGradle, isSupportedVersion) only detect Groovy
+      # DSL files; using .kts causes those checks to fail before Gradle is invoked.
       - name: Install Gradle 8.6 and Generate Wrapper
         run: |
           curl -sL https://services.gradle.org/distributions/gradle-8.6-bin.zip \
